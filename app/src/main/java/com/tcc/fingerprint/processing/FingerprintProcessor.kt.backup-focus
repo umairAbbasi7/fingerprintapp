@@ -1,0 +1,298 @@
+package com.projectx.fingerprint.processing
+
+import android.graphics.Bitmap
+import android.graphics.RectF
+import android.util.Log
+import org.opencv.android.Utils
+import org.opencv.core.*
+import org.opencv.imgcodecs.Imgcodecs
+import org.opencv.imgproc.Imgproc
+
+object FingerprintProcessor {
+    private const val TAG = "FingerprintProcessor"
+    
+    // OpenCV Pre-processing & Post-processing Settings
+    // Pre-processing Settings
+    private const val JPEG_QUALITY = 100 // Maximal quality, lossless for practical purposes
+    private const val LAPLACIAN_KERNEL_SIZE = 3
+    private const val GABOR_KERNEL_SIZE = 9
+    private const val GABOR_SIGMA = 3.0
+    private const val GABOR_THETA = 0.0
+    private const val GABOR_LAMBDA = 10.0
+    private const val GABOR_GAMMA = 0.5
+    private const val GAUSSIAN_KERNEL_SIZE = 5
+    private const val GAUSSIAN_SIGMA = 1.0
+    
+    data class ProcessingResult(
+        val processedBitmap: Bitmap,
+        val qualityScore: Double,
+        val sharpnessScore: Double,
+        val ridgeQualityScore: Double,
+        val isAcceptable: Boolean,
+        val recommendation: String
+    )
+    
+    /**
+     * Enhanced fingerprint processing with comprehensive OpenCV operations
+     * Implements all pre-processing and post-processing settings from FP project
+     */
+    fun processFingerprint(inputBitmap: Bitmap, roiBounds: RectF? = null): ProcessingResult? {
+        return try {
+            // Check if OpenCV is initialized
+            if (!com.projectx.fingerprint.FingerprintApplication.isOpenCVInitialized) {
+                Log.e(TAG, "❌ OpenCV not initialized! Cannot process fingerprint")
+                return null
+            }
+            
+            Log.d(TAG, "Starting comprehensive fingerprint processing")
+            Log.d(TAG, "Input image size: ${inputBitmap.width}x${inputBitmap.height}")
+            
+            // Step 1: Image Decode - Convert Bitmap to OpenCV Mat with IMREAD_COLOR equivalent
+            val inputMat = Mat()
+            Utils.bitmapToMat(inputBitmap, inputMat)
+            
+            // Step 2: Apply pre-processing pipeline
+            val processedMat = applyPreProcessing(inputMat, roiBounds)
+            
+            // Step 3: Quality assessment
+            val qualityScores = assessImageQuality(processedMat)
+            
+            // Step 4: Post-processing and conversion back to Bitmap
+            val outputBitmap = convertMatToBitmap(processedMat)
+            
+            // Step 5: Determine if image is acceptable
+            val isAcceptable = qualityScores.sharpnessScore > 50.0 && 
+                              qualityScores.ridgeQualityScore > 30.0
+            
+            val recommendation = generateRecommendation(qualityScores)
+            
+            Log.d(TAG, "Processing completed successfully")
+            Log.d(TAG, "Quality scores - Sharpness: ${qualityScores.sharpnessScore}, Ridge: ${qualityScores.ridgeQualityScore}")
+            
+            ProcessingResult(
+                processedBitmap = outputBitmap,
+                qualityScore = (qualityScores.sharpnessScore + qualityScores.ridgeQualityScore) / 2.0,
+                sharpnessScore = qualityScores.sharpnessScore,
+                ridgeQualityScore = qualityScores.ridgeQualityScore,
+                isAcceptable = isAcceptable,
+                recommendation = recommendation
+            )
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in fingerprint processing: ${e.message}")
+            null
+        }
+    }
+    
+    /**
+     * Step 1: Image Decode - Convert to RGB and apply color correction
+     */
+    private fun decodeImage(inputMat: Mat): Mat {
+        // Convert BGR to RGB (equivalent to IMREAD_COLOR)
+        val rgbMat = Mat()
+        Imgproc.cvtColor(inputMat, rgbMat, Imgproc.COLOR_BGR2RGB)
+        
+        // Apply color correction matrix for YUV artifact correction
+        val correctedMat = Mat()
+        val colorMatrix = Mat(3, 3, CvType.CV_32F)
+        colorMatrix.put(0, 0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        Core.transform(rgbMat, correctedMat, colorMatrix)
+        
+        // Convert back to BGR for OpenCV processing
+        val bgrMat = Mat()
+        Imgproc.cvtColor(correctedMat, bgrMat, Imgproc.COLOR_RGB2BGR)
+        
+        return bgrMat
+    }
+    
+    /**
+     * Step 2: ROI Extraction - Crop to finger region
+     */
+    private fun extractROI(inputMat: Mat, roiBounds: RectF?): Mat {
+        if (roiBounds == null) {
+            Log.d(TAG, "No ROI bounds provided, using full image")
+            return inputMat
+        }
+        
+        try {
+            // Convert ROI bounds to integer coordinates
+            val x = roiBounds.left.toInt().coerceAtLeast(0)
+            val y = roiBounds.top.toInt().coerceAtLeast(0)
+            val width = (roiBounds.right - roiBounds.left).toInt().coerceAtLeast(1)
+            val height = (roiBounds.bottom - roiBounds.top).toInt().coerceAtLeast(1)
+            
+            // Ensure bounds are within image dimensions
+            val finalX = x.coerceAtMost(inputMat.width() - 1)
+            val finalY = y.coerceAtMost(inputMat.height() - 1)
+            val finalWidth = width.coerceAtMost(inputMat.width() - finalX)
+            val finalHeight = height.coerceAtMost(inputMat.height() - finalY)
+            
+            if (finalWidth > 0 && finalHeight > 0) {
+                val roi = Mat(inputMat, Rect(finalX, finalY, finalWidth, finalHeight))
+                Log.d(TAG, "ROI extracted: ${finalWidth}x${finalHeight} from (${finalX},${finalY})")
+                return roi
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "ROI extraction failed: ${e.message}")
+        }
+        
+        return inputMat
+    }
+    
+    /**
+     * Step 3: Focus (Sharpness) Scoring using Laplacian operator
+     */
+    private fun calculateSharpnessScore(inputMat: Mat): Double {
+        try {
+            // Convert to grayscale for sharpness calculation
+            val grayMat = Mat()
+            Imgproc.cvtColor(inputMat, grayMat, Imgproc.COLOR_BGR2GRAY)
+            
+            // Apply Laplacian operator with 64F depth
+            val laplacianMat = Mat()
+            Imgproc.Laplacian(grayMat, laplacianMat, CvType.CV_64F, LAPLACIAN_KERNEL_SIZE)
+            
+            // Calculate standard deviation (measure of sharpness)
+            val meanStdDev = MatOfDouble()
+            val stdDev = MatOfDouble()
+            Core.meanStdDev(laplacianMat, meanStdDev, stdDev)
+            
+            val sharpnessScore = stdDev.get(0, 0)[0]
+            Log.d(TAG, "Sharpness score calculated: $sharpnessScore")
+            
+            return sharpnessScore
+        } catch (e: Exception) {
+            Log.w(TAG, "Sharpness calculation failed: ${e.message}")
+            return 0.0
+        }
+    }
+    
+    /**
+     * Step 4: Ridge/Valley Quality using Gabor filter
+     */
+    private fun calculateRidgeQuality(inputMat: Mat): Double {
+        try {
+            // Convert to grayscale
+            val grayMat = Mat()
+            Imgproc.cvtColor(inputMat, grayMat, Imgproc.COLOR_BGR2GRAY)
+            
+            // Create Gabor kernel with specified parameters
+            val gaborKernel = Imgproc.getGaborKernel(
+                Size(GABOR_KERNEL_SIZE.toDouble(), GABOR_KERNEL_SIZE.toDouble()),
+                GABOR_SIGMA,
+                GABOR_THETA,
+                GABOR_LAMBDA,
+                GABOR_GAMMA
+            )
+            
+            // Apply Gabor filter
+            val gaborMat = Mat()
+            Imgproc.filter2D(grayMat, gaborMat, CvType.CV_8UC1, gaborKernel)
+            
+            // Calculate quality score based on response variance
+            val mean = MatOfDouble()
+            val stdDev = MatOfDouble()
+            Core.meanStdDev(gaborMat, mean, stdDev)
+            val ridgeQualityScore = stdDev.get(0, 0)[0]
+            
+            Log.d(TAG, "Ridge quality score calculated: $ridgeQualityScore")
+            return ridgeQualityScore
+        } catch (e: Exception) {
+            Log.w(TAG, "Ridge quality calculation failed: ${e.message}")
+            return 0.0
+        }
+    }
+    
+    /**
+     * Step 5: Denoising using Gaussian blur
+     */
+    private fun applyDenoising(inputMat: Mat): Mat {
+        try {
+            val denoisedMat = Mat()
+            val kernelSize = Size(GAUSSIAN_KERNEL_SIZE.toDouble(), GAUSSIAN_KERNEL_SIZE.toDouble())
+            
+            // Apply Gaussian blur for noise reduction
+            Imgproc.GaussianBlur(inputMat, denoisedMat, kernelSize, GAUSSIAN_SIGMA, GAUSSIAN_SIGMA)
+            
+            Log.d(TAG, "Denoising applied with Gaussian blur")
+            return denoisedMat
+        } catch (e: Exception) {
+            Log.w(TAG, "Denoising failed: ${e.message}")
+            return inputMat
+        }
+    }
+    
+    /**
+     * Apply complete pre-processing pipeline
+     */
+    private fun applyPreProcessing(inputMat: Mat, roiBounds: RectF?): Mat {
+        // Step 1: Image decode and color correction
+        var processedMat = decodeImage(inputMat)
+        
+        // Step 2: ROI extraction
+        processedMat = extractROI(processedMat, roiBounds)
+        
+        // Step 3: Denoising
+        processedMat = applyDenoising(processedMat)
+        
+        return processedMat
+    }
+    
+    /**
+     * Assess image quality using multiple metrics
+     */
+    private fun assessImageQuality(inputMat: Mat): QualityScores {
+        val sharpnessScore = calculateSharpnessScore(inputMat)
+        val ridgeQualityScore = calculateRidgeQuality(inputMat)
+        
+        return QualityScores(sharpnessScore, ridgeQualityScore)
+    }
+    
+    /**
+     * Convert OpenCV Mat back to Bitmap
+     */
+    private fun convertMatToBitmap(inputMat: Mat): Bitmap {
+        val outputBitmap = Bitmap.createBitmap(inputMat.width(), inputMat.height(), Bitmap.Config.ARGB_8888)
+        Utils.matToBitmap(inputMat, outputBitmap)
+        return outputBitmap
+    }
+    
+    /**
+     * Generate quality recommendation
+     */
+    private fun generateRecommendation(scores: QualityScores): String {
+        return when {
+            scores.sharpnessScore > 80.0 && scores.ridgeQualityScore > 60.0 -> "Excellent quality - Ready for processing"
+            scores.sharpnessScore > 60.0 && scores.ridgeQualityScore > 40.0 -> "Good quality - Acceptable for processing"
+            scores.sharpnessScore > 40.0 && scores.ridgeQualityScore > 20.0 -> "Fair quality - May need improvement"
+            else -> "Poor quality - Retake image"
+        }
+    }
+    
+    /**
+     * Save processed image with JPEG quality settings
+     */
+    fun saveProcessedImage(bitmap: Bitmap, filePath: String): Boolean {
+        return try {
+            // Convert Bitmap to Mat for OpenCV saving
+            val mat = Mat()
+            Utils.bitmapToMat(bitmap, mat)
+            
+            // Save with maximum JPEG quality (100)
+            val params = MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, JPEG_QUALITY)
+            
+            val success = Imgcodecs.imwrite(filePath, mat, params)
+            Log.d(TAG, "Image saved with JPEG quality $JPEG_QUALITY: $success")
+            
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save image: ${e.message}")
+            false
+        }
+    }
+    
+    private data class QualityScores(
+        val sharpnessScore: Double,
+        val ridgeQualityScore: Double
+    )
+} 

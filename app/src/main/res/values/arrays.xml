@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="fingerprint_types">
+        <item>Index</item>
+        <item>Middle</item>
+        <item>Ring</item>
+        <item>Little</item>
+        <item>Thumb</item>
+    </string-array>
+</resources> 

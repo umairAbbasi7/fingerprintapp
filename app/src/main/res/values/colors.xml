@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Colors -->
+    <color name="primary_color">#1976D2</color>
+    <color name="primary_dark">#1565C0</color>
+    <color name="primary_light">#BBDEFB</color>
+    
+    <!-- Secondary Colors -->
+    <color name="secondary_color">#FF5722</color>
+    <color name="secondary_dark">#E64A19</color>
+    <color name="secondary_light">#FFCCBC</color>
+    
+    <!-- Background Colors -->
+    <color name="background_primary">#F5F5F5</color>
+    <color name="background_secondary">#FFFFFF</color>
+    <color name="card_background">#FFFFFF</color>
+    <color name="status_background">#F8F9FA</color>
+    
+    <!-- Text Colors -->
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+    <color name="text_tertiary">#9E9E9E</color>
+    <color name="text_hint">#BDBDBD</color>
+    
+    <!-- Semantic Colors -->
+    <color name="success_color">#4CAF50</color>
+    <color name="error_color">#F44336</color>
+    <color name="warning_color">#FF9800</color>
+    <color name="info_color">#2196F3</color>
+    
+    <!-- Status Colors -->
+    <color name="status_online">#4CAF50</color>
+    <color name="status_offline">#F44336</color>
+    <color name="status_warning">#FF9800</color>
+    
+    <!-- Progress Colors -->
+    <color name="progress_track">#E0E0E0</color>
+    <color name="progress_indicator">#1976D2</color>
+    
+    <!-- Button Colors -->
+    <color name="capture_button_color">#4CAF50</color>
+    <color name="torch_button_color">#FF9800</color>
+    <color name="back_button_color">#757575</color>
+    
+    <!-- Overlay Colors -->
+    <color name="overlay_background">#80000000</color>
+    <color name="guidance_background">#CC000000</color>
+    <color name="status_bar_background">#CC000000</color>
+    <color name="control_bar_background">#CC000000</color>
+    
+    <!-- Standard Colors -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+    
+    <!-- Legacy Support -->
+    <color name="gray">#757575</color>
+</resources>

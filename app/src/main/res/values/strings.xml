@@ -1,0 +1,69 @@
+<resources>
+    <string name="app_name">TCC Fingerprint Verification</string>
+
+    <!-- Main Activity -->
+    <string name="main_title">Fingerprint Detection</string>
+    <string name="btn_register">Register Fingerprint</string>
+    <string name="btn_verify">Verify Fingerprint</string>
+    <string name="btn_settings">Settings</string>
+
+    <!-- Register Activity -->
+    <string name="register_title">Register Fingerprint</string>
+    <string name="user_id_label">User ID:</string>
+    <string name="user_id_hint">Enter User ID</string>
+    <string name="fingerprint_type_label">Fingerprint Type:</string>
+    <string name="btn_register_action">Register</string>
+    <string name="btn_back">Back</string>
+
+    <!-- Verify Activity -->
+    <string name="verify_title">Verify Fingerprint</string>
+    <string name="btn_verify_action">Verify</string>
+
+    <!-- Capture Activity -->
+    <string name="capture_ready">Ready to capture</string>
+    <string name="capture_button">Capture</string>
+    <string name="status_detecting">Detecting finger...</string>
+    <string name="status_positioning">Positioning finger...</string>
+    <string name="status_capturing">Capturing fingerprint...</string>
+    <string name="status_processing">Processing image...</string>
+    <string name="status_uploading">Uploading to server...</string>
+    <string name="status_ready">Ready to capture</string>
+
+    <!-- Settings Activity -->
+    <string name="settings_title">Settings</string>
+    <string name="api_settings">API Settings</string>
+    <string name="api_base_url">API Base URL:</string>
+    <string name="api_timeout">API Timeout (seconds):</string>
+    <string name="detection_settings">Detection Settings</string>
+    <string name="confidence_threshold">Confidence Threshold: %d%%</string>
+    <string name="stability_threshold">Stability Threshold: %d%%</string>
+    <string name="quality_threshold">Quality Threshold: %d%%</string>
+    <string name="camera_settings">Camera Settings</string>
+    <string name="use_torch">Use Torch</string>
+    <string name="auto_focus">Auto Focus</string>
+    <string name="debug_settings">Debug Settings</string>
+    <string name="debug_mode">Debug Mode</string>
+    <string name="save_debug_images">Save Debug Images</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_reset">Reset</string>
+
+    <!-- Messages -->
+    <string name="success_registration">Registration completed successfully</string>
+    <string name="success_verification">Verification successful</string>
+    <string name="success_capture">Fingerprint captured successfully</string>
+    <string name="error_camera_permission">Camera permission is required</string>
+    <string name="error_camera_init">Failed to initialize camera</string>
+    <string name="error_detection_failed">Finger detection failed</string>
+    <string name="error_network">Network error occurred</string>
+    <string name="error_api_failed">API request failed</string>
+    <string name="error_image_processing">Image processing failed</string>
+    <string name="settings_saved">Settings saved successfully</string>
+    <string name="settings_reset">Settings reset to defaults</string>
+    <string name="error_saving_settings">Error saving settings: %s</string>
+    <string name="please_enter_user_id">Please enter a User ID</string>
+    <string name="user_id_too_short">User ID must be at least 3 characters</string>
+    <string name="registration_failed">Registration failed</string>
+    <string name="verification_failed">Verification failed</string>
+    <string name="capture_failed">Capture failed: %s</string>
+    <string name="processing_failed">Processing failed: %s</string>
+</resources>

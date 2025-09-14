@@ -104,12 +104,10 @@ class PreviewActivity : AppCompatActivity() {
             if (file.exists()) {
                 val bitmap = BitmapFactory.decodeFile(imagePath)
                 if (bitmap != null) {
-                    // Rotates landscape images to correct display orientation for portrait presentation
-                    val displayBitmap = fixDisplayOrientation(bitmap)
-                    
-                    capturedBitmap = displayBitmap
+                    // Preserve exact camera orientation without rotation
+                    capturedBitmap = bitmap
                     currentImagePath = imagePath
-                    imageView.setImageBitmap(displayBitmap)
+                    imageView.setImageBitmap(bitmap)
                     statusText.text = "Image loaded successfully"
                     
                     Log.d("PreviewActivity", "Image loaded successfully")
@@ -283,26 +281,4 @@ class PreviewActivity : AppCompatActivity() {
         progressIcon.clearAnimation()
     }
     
-    /**
-     * Fix display orientation for landscape images
-     * Rotates landscape images by 90 degrees for proper portrait display
-     */
-    private fun fixDisplayOrientation(bitmap: Bitmap): Bitmap {
-        return try {
-                    if (bitmap.width > bitmap.height) { // If landscape
-            Log.d("PreviewActivity", "Rotating landscape image to portrait for display")
-            val matrix = Matrix()
-            matrix.postRotate(90f) // Rotate 90 degrees clockwise
-            val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            Log.d("PreviewActivity", "Display orientation fixed")
-            return rotatedBitmap
-        } else {
-            Log.d("PreviewActivity", "No rotation needed - image is already portrait/square")
-            return bitmap
-        }
-        } catch (e: Exception) {
-            Log.e("PreviewActivity", "Error fixing display orientation: ${e.message}")
-            return bitmap
-        }
-    }
 } 

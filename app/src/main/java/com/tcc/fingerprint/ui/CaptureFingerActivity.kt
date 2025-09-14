@@ -19,7 +19,9 @@ import androidx.camera.core.ImageProxy
 import java.io.ByteArrayOutputStream
 import android.graphics.Rect
 import android.media.Image
+import android.media.MediaPlayer
 import android.os.Handler
+import android.content.res.AssetFileDescriptor
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
@@ -136,6 +138,15 @@ class CaptureFingerActivity : ComponentActivity() {
 
     // Countdown coroutine job
     private var countdownJob: Job? = null
+    
+    // Sound system
+    private var holdSoundPlayer: MediaPlayer? = null
+    private var capturedSoundPlayer: MediaPlayer? = null
+    private var countdownValue by mutableStateOf(0)
+    
+    // Progress UI state
+    private var captureStatus by mutableStateOf("Position 4 fingers inside the D-shape area")
+    private var progressStep by mutableStateOf(0) // 0: positioning, 1: detecting, 2: capturing, 3: processing
 
     // Permissions
     private val requestPermissionLauncher =
@@ -165,6 +176,9 @@ class CaptureFingerActivity : ComponentActivity() {
             Log.e(TAG, "HybridDetector init failed")
         }
         combinedQualityAssessor = CombinedQualityAssessor(hybridDetector)
+        
+        // Initialize sound system
+        initializeSoundSystem()
 
         setContent {
             CaptureComposeScreen(
@@ -174,12 +188,27 @@ class CaptureFingerActivity : ComponentActivity() {
                     previewViewRef = previewView
                 },
                 onCaptureRequested = { manualCaptureTrigger() },
-                onTorchToggle = { enable -> camera?.cameraControl?.enableTorch(enable) },
+                onTorchToggle = { enable -> 
+                    Log.d(TAG, "Torch toggle requested: $enable")
+                    try {
+                        if (camera != null) {
+                            camera?.cameraControl?.enableTorch(enable)
+                            Log.d(TAG, "Torch set to: $enable")
+                        } else {
+                            Log.w(TAG, "Camera not ready for torch toggle")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to toggle torch: ${e.message}")
+                    }
+                },
                 updateOverlayRect = { rect -> lastOverlayRectF = rect },
                 qualityText = qualityText,
                 showCaptureIndicatorAutoCapture = showCaptureIndicatorState.value,
                 isCapturing = isCapturing,
-                isCountdownActive = isCountdownActive
+                isCountdownActive = isCountdownActive,
+                countdownValue = countdownValue,
+                captureStatus = captureStatus,
+                progressStep = progressStep
             )
         }
     }
@@ -194,6 +223,144 @@ class CaptureFingerActivity : ComponentActivity() {
         try {
             hybridDetector.close()
         } catch (ignored: Exception) {
+        }
+        // Cleanup sound system
+        releaseSoundSystem()
+    }
+    
+    private fun initializeSoundSystem() {
+        try {
+            // Try to load hold.mp3 (optional)
+            try {
+                val afd = assets.openFd("hold.mp3")
+                holdSoundPlayer = MediaPlayer().apply {
+                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                    afd.close()
+                    prepare()
+                    isLooping = false
+                }
+                Log.d(TAG, "Hold sound loaded successfully")
+            } catch (e: Exception) {
+                Log.w(TAG, "hold.mp3 not found - skipping")
+                holdSoundPlayer = null
+            }
+            
+            // Load captured.mp3 (required)
+            val afd2 = assets.openFd("captured.mp3")
+            capturedSoundPlayer = MediaPlayer().apply {
+                setDataSource(afd2.fileDescriptor, afd2.startOffset, afd2.length)
+                afd2.close()
+                prepare()
+                isLooping = false
+            }
+            Log.d(TAG, "Captured sound loaded successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load captured.mp3: ${e.message}")
+            // Fallback to system beep
+            capturedSoundPlayer = null
+        }
+    }
+    
+    private fun releaseSoundSystem() {
+        try {
+            holdSoundPlayer?.release()
+            capturedSoundPlayer?.release()
+            holdSoundPlayer = null
+            capturedSoundPlayer = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to release sound system: ${e.message}")
+        }
+    }
+    
+    private fun playHoldSound() {
+        try {
+            holdSoundPlayer?.let { player ->
+                if (player.isPlaying) {
+                    player.stop()
+                }
+                player.prepare()
+                player.start()
+                Log.d(TAG, "Hold sound played successfully")
+            } ?: run {
+                // Fallback: Use system beep if no sound file
+                Log.w(TAG, "No hold sound file - using system beep")
+                playSystemBeep()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to play hold sound: ${e.message}")
+            // Fallback: Use system beep
+            playSystemBeep()
+        }
+    }
+    
+    private fun playCapturedSound() {
+        try {
+            capturedSoundPlayer?.let { player ->
+                // Stop any current playback
+                if (player.isPlaying) {
+                    player.stop()
+                }
+                // Reset to beginning and play
+                player.seekTo(0)
+                player.start()
+                Log.d(TAG, "🎵 captured.mp3 played successfully")
+                // Show visual feedback
+                runOnUiThread {
+                    Toast.makeText(this, "🔊 Capture Sound Played!", Toast.LENGTH_SHORT).show()
+                }
+            } ?: run {
+                // Fallback: Use system beep if no sound file
+                Log.w(TAG, "No capture sound file - using system beep")
+                playSystemBeep()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to play captured sound: ${e.message}")
+            // Fallback: Use system beep
+            playSystemBeep()
+        }
+    }
+    
+    private fun playSystemBeep() {
+        try {
+            // Use system beep as fallback
+            val toneGenerator = android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 100)
+            toneGenerator.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 200)
+            Log.d(TAG, "System beep played as capture sound")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to play system beep: ${e.message}")
+        }
+    }
+    
+    private fun updateCaptureStatus(status: String) {
+        captureStatus = status
+        Log.d(TAG, "Capture Status: $status")
+    }
+    
+    private fun updateProgressStep(step: Int) {
+        progressStep = step
+        Log.d(TAG, "Progress Step: $step")
+    }
+    
+    private fun captureImmediately(
+        previewView: PreviewView,
+        viewOverlay: RectF,
+        mappedOverlay: RectF,
+        rotationDeg: Int
+    ) {
+        if (isCapturing || hasCaptured) return
+        
+        Log.d(TAG, "Starting immediate capture")
+        updateProgressStep(2) // Capturing step
+        updateCaptureStatus("Capturing... Hold still!")
+        
+        // Request focus and capture
+        requestFocusOnOverlay(previewView, viewOverlay) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                // Update UI to show capturing
+                updateCaptureStatus("📸 CAPTURED! Processing...")
+                captureWithCameraX(previewView, viewOverlay)
+                showCaptureIndicatorState.value = true
+            }, 250)
         }
     }
 
@@ -219,16 +386,30 @@ class CaptureFingerActivity : ComponentActivity() {
 
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
-        // Preview
+        // Calculate optimal resolution based on preview view size
+        // This ensures captured image matches exactly what user sees in preview
+        val previewViewWidth = previewViewSize.width
+        val previewViewHeight = previewViewSize.height
+        
+        // Use preview view dimensions if available, otherwise fallback to constants
+        val optimalWidth = if (previewViewWidth > 0) previewViewWidth else CAPTURE_WIDTH
+        val optimalHeight = if (previewViewHeight > 0) previewViewHeight else CAPTURE_HEIGHT
+        
+        // Log resolutions for debugging
+        Log.d(TAG, "Preview view size: ${previewViewWidth}x${previewViewHeight}")
+        Log.d(TAG, "Optimal resolution: ${optimalWidth}x${optimalHeight}")
+        Log.d(TAG, "Fallback resolution: ${CAPTURE_WIDTH}x${CAPTURE_HEIGHT}")
+
+        // Preview - use optimal resolution for exact match with preview
         val preview = Preview.Builder()
-            .setDefaultResolution(android.util.Size(1920, 1080))
+            .setDefaultResolution(android.util.Size(optimalWidth, optimalHeight))
             .setTargetRotation(rotation)
             .build()
             .also { it.surfaceProvider = previewView.surfaceProvider }
 
         // ImageAnalysis (single instance - stored in property)
         imageAnalyzer = ImageAnalysis.Builder()
-            .setDefaultResolution(android.util.Size(CAPTURE_WIDTH, CAPTURE_HEIGHT))
+            .setDefaultResolution(android.util.Size(optimalWidth, optimalHeight))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
 
@@ -324,13 +505,15 @@ class CaptureFingerActivity : ComponentActivity() {
                                 readyFrameCount = 0
                             }
 
-                            // start countdown only after N consecutive ready frames
+                            // capture immediately after N consecutive ready frames
                             if (readyFrameCount >= REQUIRED_READY_FRAMES_FOR_COUNTDOWN) {
                                 readyFrameCount = 0
-                                Log.d(TAG, "CONDITIONS PASSED (consecutive) - starting countdown")
+                                Log.d(TAG, "CONDITIONS PASSED (consecutive) - capturing immediately")
                                 runOnUiThread {
-                                    // pass both view overlay (for focus / cropping) and mappedOverlay for detector checks
-                                    startCountdownThenCapture(
+                                    // Update UI to show capturing
+                                    updateCaptureStatus("Capturing... Hold still!")
+                                    // Capture immediately without countdown
+                                    captureImmediately(
                                         previewView,
                                         overlay,
                                         mappedOverlay,
@@ -354,13 +537,15 @@ class CaptureFingerActivity : ComponentActivity() {
             }
         })
 
-        // ImageCapture with Camera2Interop options
+        // ImageCapture with Camera2Interop options - optimized for fingerprint capture
         val imageCaptureBuilder = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-            .setDefaultResolution(android.util.Size(CAPTURE_WIDTH, CAPTURE_HEIGHT))
+            .setDefaultResolution(android.util.Size(optimalWidth, optimalHeight))
             .setTargetRotation(rotation)
 
         val ext = Camera2Interop.Extender(imageCaptureBuilder)
+        
+        // High quality settings for fingerprint capture
         ext.setCaptureRequestOption(
             android.hardware.camera2.CaptureRequest.JPEG_QUALITY,
             100.toByte()
@@ -381,6 +566,39 @@ class CaptureFingerActivity : ComponentActivity() {
             android.hardware.camera2.CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
             android.hardware.camera2.CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON
         )
+        
+        // Optimized exposure settings for close-up fingerprint capture
+        ext.setCaptureRequestOption(
+            android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE,
+            android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE_ON
+        )
+        ext.setCaptureRequestOption(
+            android.hardware.camera2.CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
+            0  // No exposure compensation for natural lighting
+        )
+        ext.setCaptureRequestOption(
+            android.hardware.camera2.CaptureRequest.CONTROL_AWB_MODE,
+            android.hardware.camera2.CaptureRequest.CONTROL_AWB_MODE_AUTO
+        )
+        
+        // Focus settings for close-up capture
+        ext.setCaptureRequestOption(
+            android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE,
+            android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+        )
+        
+        // Additional quality settings for fingerprint capture
+        ext.setCaptureRequestOption(
+            android.hardware.camera2.CaptureRequest.CONTROL_AE_LOCK,
+            false
+        )
+        ext.setCaptureRequestOption(
+            android.hardware.camera2.CaptureRequest.CONTROL_AWB_LOCK,
+            false
+        )
+        
+        // Flash settings - let CameraX handle torch control
+        // Don't override FLASH_MODE to allow torch control
 
         imageCapture = imageCaptureBuilder.build()
 
@@ -393,8 +611,13 @@ class CaptureFingerActivity : ComponentActivity() {
                 imageAnalyzer,
                 imageCapture
             )
-            camera?.cameraControl?.enableTorch(true)
-            Log.d(TAG, "CameraX bound successfully")
+            // Enable torch by default for fingerprint capture
+            try {
+                camera?.cameraControl?.enableTorch(true)
+                Log.d(TAG, "CameraX bound successfully with torch enabled")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to enable torch on camera bind: ${e.message}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Bind failed: ${e.message}", e)
         }
@@ -481,96 +704,6 @@ class CaptureFingerActivity : ComponentActivity() {
         return if (union <= 0f) 0f else inter / union
     }
 
-    private fun startCountdownThenCapture(
-        previewView: PreviewView,
-        viewOverlay: RectF,
-        mappedOverlay: RectF,
-        rotationDeg: Int
-    ) {
-        if (isCountdownActive || isCapturing || hasCaptured) return
-        isCountdownActive = true
-        countdownJob?.cancel()
-
-        val allowedFails = 1
-        countdownJob = CoroutineScope(Dispatchers.Main).launch {
-            try {
-                var count = 2
-                var failCount = 0
-                Log.d(
-                    TAG,
-                    "startCountdownThenCapture START viewOverlay=$viewOverlay mappedOverlay=$mappedOverlay rot=$rotationDeg"
-                )
-
-                while (count > 0) {
-                    if (!isAutoCaptureMode) {
-                        Log.d(TAG, "Countdown aborted: isAutoCaptureMode=false")
-                        isCountdownActive = false
-                        return@launch
-                    }
-
-                    val currentShould = try {
-                        hybridDetector.shouldAutoCapture(mappedOverlay)
-                    } catch (e: Exception) {
-                        Log.w(
-                            TAG,
-                            "HybridDetector.shouldAutoCapture threw during countdown: ${e.message}",
-                            e
-                        )
-                        false
-                    }
-
-                    if (!currentShould) {
-                        failCount++
-                        Log.d(
-                            TAG,
-                            "Countdown tick (count=$count) detector FALSE (failCount=$failCount/$allowedFails)"
-                        )
-                        if (failCount > allowedFails) {
-                            Log.d(
-                                TAG,
-                                "Countdown cancelled due to instability (too many detector fails)"
-                            )
-                            isCountdownActive = false
-                            return@launch
-                        }
-                    } else {
-                        if (failCount > 0) Log.d(
-                            TAG,
-                            "Detector recovered during countdown (reset failCount)"
-                        )
-                        failCount = 0
-                    }
-
-                    // small stability check log
-                    synchronized(detectionHistory) {
-                        Log.d(
-                            TAG,
-                            "Countdown tick - detectionHistory size=${detectionHistory.size}"
-                        )
-                    }
-
-                    delay(1000)
-                    count--
-                }
-
-                isCountdownActive = false
-                Log.d(TAG, "Countdown finished - request focus and capture")
-
-                requestFocusOnOverlay(previewView, viewOverlay) {
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        captureWithCameraX(previewView, viewOverlay)
-                        showCaptureIndicatorState.value = true
-                    }, 250)
-                }
-            } catch (e: CancellationException) {
-                isCountdownActive = false
-                Log.d(TAG, "Countdown job cancelled")
-            } catch (e: Exception) {
-                isCountdownActive = false
-                Log.e(TAG, "Countdown error: ${e.message}", e)
-            }
-        }
-    }
     private fun manualCaptureTrigger() {
         if (isCapturing) return
         val overlay = lastOverlayRectF ?: run {
@@ -646,6 +779,10 @@ class CaptureFingerActivity : ComponentActivity() {
                             if (bitmap == null) {
                                 throw Exception("Failed to convert capture to bitmap")
                             }
+                            
+                            // Log actual captured image dimensions
+                            Log.d(TAG, "Captured image dimensions: ${bitmap.width}x${bitmap.height}")
+                            Log.d(TAG, "Preview view size: ${previewViewSize.width}x${previewViewSize.height}")
 
                             // Compute blur metrics (use scaled copy like Camera2)
                             val maxSide = 800
@@ -675,16 +812,18 @@ class CaptureFingerActivity : ComponentActivity() {
                             Log.d(TAG, "Captured blur metrics lapVar=$lapVar tenengrad=$ten")
 
                             if (lapVar.isFinite() && lapVar < LAP_VAR_REJECT) {
-                                // immediate retake
+                                // immediate retake with better user feedback
                                 Log.w(TAG, "Captured image too blurry (lapVar $lapVar) -> retake")
                                 withContext(Dispatchers.Main) {
                                     Toast.makeText(
                                         this@CaptureFingerActivity,
-                                        "Image blurry — Retaking...",
-                                        Toast.LENGTH_SHORT
+                                        "Image too blurry — Please hold still and retaking...",
+                                        Toast.LENGTH_LONG
                                     ).show()
                                     isCapturing = false
-                                    // restart analyzer monitoring (nothing to do - analyzer continues)
+                                    // Reset countdown and detection state for retry
+                                    readyFrameCount = 0
+                                    clearHistory()
                                 }
                                 imageProxy.close()
                                 return@launch
@@ -712,10 +851,13 @@ class CaptureFingerActivity : ComponentActivity() {
                                 withContext(Dispatchers.Main) {
                                     Toast.makeText(
                                         this@CaptureFingerActivity,
-                                        "Poor image quality - Retaking...",
-                                        Toast.LENGTH_SHORT
+                                        "Poor image quality - Please ensure good lighting and retaking...",
+                                        Toast.LENGTH_LONG
                                     ).show()
                                     isCapturing = false
+                                    // Reset countdown and detection state for retry
+                                    readyFrameCount = 0
+                                    clearHistory()
                                 }
                                 imageProxy.close()
                                 return@launch
@@ -732,20 +874,22 @@ class CaptureFingerActivity : ComponentActivity() {
                             }
                             consecutiveClearFrames = 0
 
-                            // Crop to overlay (map preview coords -> image pixel coords)
-                            val finalBitmap = overlayLocal?.let { overlayRect ->
-                                cropAndMaskToOverlay(bitmap, overlayRect, previewViewSize)
-                            } ?: bitmap
+                            // Crop to exact camera preview frame (not D-shape overlay)
+                            Log.d(TAG, "Original captured image size: ${bitmap.width}x${bitmap.height}")
+                            Log.d(TAG, "Preview view size: ${previewViewSize.width}x${previewViewSize.height}")
+                            
+                            val finalBitmap = cropToPreviewFrame(bitmap, previewViewSize)
+                            Log.d(TAG, "Preview frame cropped image size: ${finalBitmap.width}x${finalBitmap.height}")
 
-                            // Save temporary file
+                            // Save temporary file (preview frame cropped)
                             val outFile = File(
                                 getExternalFilesDir(null),
-                                "fingerprint_cropped_${System.currentTimeMillis()}.jpg"
+                                "fingerprint_preview_${System.currentTimeMillis()}.jpg"
                             )
                             FileOutputStream(outFile).use { fos ->
                                 finalBitmap.compress(Bitmap.CompressFormat.JPEG, 95, fos)
                             }
-                            Log.d(TAG, "Saved capture: ${outFile.absolutePath}")
+                            Log.d(TAG, "Saved preview frame cropped image: ${outFile.absolutePath}")
 
                             // Process with FingerprintProcessor (OpenCV)
                             val processingResult = try {
@@ -770,8 +914,14 @@ class CaptureFingerActivity : ComponentActivity() {
                             }
 
 
-                            // Launch preview / cropper activity with file path
+                            // Skip manual cropping - go directly to preview with PREVIEW FRAME CROPPED image
                             withContext(Dispatchers.Main) {
+                                updateProgressStep(3) // Processing step
+                                updateCaptureStatus("✅ Image captured successfully!")
+                                
+                                // Play capture sound only when image is successfully processed and ready
+                                playCapturedSound()
+                                
                                 countdownJob?.cancel()
                                 isCountdownActive = false
                                 isCapturing = false
@@ -780,10 +930,10 @@ class CaptureFingerActivity : ComponentActivity() {
                                 clearHistory()
                                 val intent = Intent(
                                     this@CaptureFingerActivity,
-                                    ImageCropperActivity::class.java
+                                    PreviewActivity::class.java
                                 ).apply {
                                     putExtra(
-                                        ImageCropperActivity.EXTRA_IMAGE_PATH,
+                                        PreviewActivity.EXTRA_IMAGE_PATH,
                                         outFile.absolutePath
                                     )
                                     putExtra(
@@ -828,12 +978,25 @@ class CaptureFingerActivity : ComponentActivity() {
 
     private fun updateQualityDisplay(assessment: CombinedQualityAssessor.QualityAssessment) {
         lastAssessment = assessment
+        val aiConfidence = (assessment.aiConfidence * 100).toInt()
+        val status = if (assessment.isQuality) "READY" else "NEEDS IMPROVEMENT"
+        val statusColor = if (assessment.isQuality) "🟢" else "🔴"
+        
+        // Update progress step based on detection quality
+        if (assessment.fingerCount > 0 && aiConfidence > 50) {
+            updateProgressStep(1) // Detecting step
+            updateCaptureStatus("Detecting fingers... ${assessment.fingerCount} found")
+        } else {
+            updateProgressStep(0) // Positioning step
+            updateCaptureStatus("Position 4 fingers inside the D-shape area")
+        }
+        
         qualityText = """
-            🧠 $modelLabel
-            🤖 AI Confidence: ${(assessment.aiConfidence * 100).toInt()}%
-            🖐️ Finger Count: ${assessment.fingerCount}
-            📱 Status: ${if (assessment.isQuality) "READY" else "NEEDS IMPROVEMENT"}
-            💡 Tip: ${assessment.recommendation}
+            $modelLabel
+            AI Confidence: ${aiConfidence}%
+            Fingers Detected: ${assessment.fingerCount}
+            Status: $statusColor $status
+            ${assessment.recommendation}
         """.trimIndent()
     }
 
@@ -1008,6 +1171,84 @@ class CaptureFingerActivity : ComponentActivity() {
         val mean = Core.mean(sq).`val`[0]
         listOf(mat, gray, gx, gy, mag, sq).forEach { it.release() }
         return mean
+    }
+
+    // Crop to exact camera preview frame to match what user sees on screen
+    private fun cropToPreviewFrame(bitmap: Bitmap, previewSize: IntSize): Bitmap {
+        try {
+            Log.d(TAG, "Cropping to preview frame: ${previewSize.width}x${previewSize.height}")
+            
+            // Calculate the aspect ratio of the captured image vs preview
+            val imageAspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
+            val previewAspectRatio = previewSize.width.toFloat() / previewSize.height.toFloat()
+            
+            Log.d(TAG, "Image aspect ratio: ${String.format("%.2f", imageAspectRatio)}")
+            Log.d(TAG, "Preview aspect ratio: ${String.format("%.2f", previewAspectRatio)}")
+            
+            // Calculate crop dimensions to match preview frame exactly
+            val cropWidth: Int
+            val cropHeight: Int
+            val offsetX: Int
+            val offsetY: Int
+            
+            if (imageAspectRatio > previewAspectRatio) {
+                // Image is wider than preview - crop width to match preview aspect ratio
+                cropHeight = bitmap.height
+                cropWidth = (bitmap.height * previewAspectRatio).toInt()
+                offsetX = (bitmap.width - cropWidth) / 2
+                offsetY = 0
+                Log.d(TAG, "Image wider than preview - cropping width from ${bitmap.width} to ${cropWidth}")
+            } else {
+                // Image is taller than preview - crop height to match preview aspect ratio
+                cropWidth = bitmap.width
+                cropHeight = (bitmap.width / previewAspectRatio).toInt()
+                offsetX = 0
+                offsetY = (bitmap.height - cropHeight) / 2
+                Log.d(TAG, "Image taller than preview - cropping height from ${bitmap.height} to ${cropHeight}")
+            }
+            
+            Log.d(TAG, "Initial crop dimensions: ${cropWidth}x${cropHeight}, offset: (${offsetX}, ${offsetY})")
+            
+            // Additional vertical cropping to remove extra frame
+            // Use dynamic cropping based on image size - larger images need more aggressive cropping
+            val verticalCropRatio = when {
+                cropHeight > 2000 -> 0.20f // Large images: remove 20% from top and bottom
+                cropHeight > 1500 -> 0.18f // Medium images: remove 18% from top and bottom
+                cropHeight > 1000 -> 0.15f // Small images: remove 15% from top and bottom
+                else -> 0.12f // Very small images: remove 12% from top and bottom
+            }
+            
+            val verticalCropPixels = (cropHeight * verticalCropRatio).toInt()
+            val finalCropHeight = cropHeight - (verticalCropPixels * 2) // Remove from both top and bottom
+            val finalOffsetY = offsetY + verticalCropPixels // Adjust offset to center the crop
+            
+            Log.d(TAG, "Additional vertical cropping: removing ${verticalCropPixels}px from top and bottom (${String.format("%.1f", verticalCropRatio * 100)}% ratio)")
+            Log.d(TAG, "Final crop dimensions: ${cropWidth}x${finalCropHeight}, offset: (${offsetX}, ${finalOffsetY})")
+            
+            // Ensure crop dimensions are within image bounds
+            val finalCropWidth = cropWidth.coerceAtMost(bitmap.width - offsetX)
+            val finalCropHeightBounded = finalCropHeight.coerceAtMost(bitmap.height - finalOffsetY)
+            
+            if (finalCropWidth <= 0 || finalCropHeightBounded <= 0) {
+                Log.w(TAG, "Invalid crop dimensions after vertical adjustment, using original crop")
+                val croppedBitmap = Bitmap.createBitmap(bitmap, offsetX, offsetY, cropWidth, cropHeight)
+                return croppedBitmap
+            }
+            
+            val croppedBitmap = Bitmap.createBitmap(bitmap, offsetX, finalOffsetY, finalCropWidth, finalCropHeightBounded)
+            Log.d(TAG, "Preview frame cropping successful: ${croppedBitmap.width}x${croppedBitmap.height}")
+            
+            // Calculate the reduction percentage
+            val widthReduction = ((bitmap.width - croppedBitmap.width).toFloat() / bitmap.width * 100).toInt()
+            val heightReduction = ((bitmap.height - croppedBitmap.height).toFloat() / bitmap.height * 100).toInt()
+            Log.d(TAG, "Crop reduction: ${widthReduction}% width, ${heightReduction}% height")
+            
+            return croppedBitmap
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Preview frame cropping failed: ${e.message}", e)
+            return bitmap
+        }
     }
 
     // Crop and mask to overlay path (D-shape). previewViewSize must be the size of PreviewView in pixels.

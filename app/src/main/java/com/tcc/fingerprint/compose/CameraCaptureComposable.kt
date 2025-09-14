@@ -53,12 +53,22 @@ fun CaptureComposeScreen(
     qualityText: String,
     showCaptureIndicatorAutoCapture: Boolean = false,
     isCapturing: Boolean = false,
-    isCountdownActive: Boolean = false
+    isCountdownActive: Boolean = false,
+    countdownValue: Int = 0,
+    captureStatus: String = "Position 4 fingers inside the D-shape area",
+    progressStep: Int = 0
 ) {
     val context = LocalContext.current
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
     var previewSize by remember { mutableStateOf(IntSize(0, 0)) }
     var torchOn by remember { mutableStateOf(true) }
+    
+    // Sync torch state with actual camera state
+    LaunchedEffect(Unit) {
+        // Wait a bit for camera to initialize, then enable torch
+        kotlinx.coroutines.delay(1000)
+        onTorchToggle(true)
+    }
     var showCaptureIndicator by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -165,13 +175,90 @@ fun CaptureComposeScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             )
             {
+            // Countdown display
+            if (isCountdownActive && countdownValue > 0) {
                 Text(
-                    text = if (isCapturing) "Capturing hold your hand" else if (isCountdownActive) "Capturing hold hand still" else "Position fingers inside D-shape",
+                    text = countdownValue.toString(),
                     modifier = Modifier.padding(8.dp),
-                    color = Color.Red,
-                    fontSize = 20.sp,
+                    color = Color.Yellow,
+                    fontSize = 48.sp,
                     fontWeight = FontWeight.ExtraBold,
                 )
+            } else {
+                // Progress indicator
+                Column(
+                    modifier = Modifier.padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Main status text
+                    Text(
+                        text = captureStatus,
+                        color = when (progressStep) {
+                            0 -> Color.Red      // Positioning
+                            1 -> Color.Yellow   // Detecting
+                            2 -> Color.Green    // Capturing
+                            3 -> Color.Blue     // Processing
+                            else -> Color.Gray
+                        },
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    
+                    // Progress steps
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Step 1: Positioning
+                        Text(
+                            text = "1️⃣",
+                            fontSize = 16.sp,
+                            color = if (progressStep >= 0) Color.Green else Color.Gray
+                        )
+                        Text(
+                            text = "Position",
+                            fontSize = 12.sp,
+                            color = if (progressStep >= 0) Color.Green else Color.Gray
+                        )
+                        
+                        // Step 2: Detecting
+                        Text(
+                            text = "2️⃣",
+                            fontSize = 16.sp,
+                            color = if (progressStep >= 1) Color.Green else Color.Gray
+                        )
+                        Text(
+                            text = "Detect",
+                            fontSize = 12.sp,
+                            color = if (progressStep >= 1) Color.Green else Color.Gray
+                        )
+                        
+                        // Step 3: Capturing
+                        Text(
+                            text = "3️⃣",
+                            fontSize = 16.sp,
+                            color = if (progressStep >= 2) Color.Green else Color.Gray
+                        )
+                        Text(
+                            text = "Capture",
+                            fontSize = 12.sp,
+                            color = if (progressStep >= 2) Color.Green else Color.Gray
+                        )
+                        
+                        // Step 4: Complete
+                        Text(
+                            text = "4️⃣",
+                            fontSize = 16.sp,
+                            color = if (progressStep >= 3) Color.Green else Color.Gray
+                        )
+                        Text(
+                            text = "Complete",
+                            fontSize = 12.sp,
+                            color = if (progressStep >= 3) Color.Green else Color.Gray
+                        )
+                    }
+                }
+            }
                 IconButton(onClick = {
                     torchOn = !torchOn
                     onTorchToggle(torchOn)

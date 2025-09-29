@@ -94,14 +94,13 @@ object FingerprintProcessor {
                         Log.d(TAG, "Metrics: lapVar=${metrics.laplacianVariance}, contrast=${metrics.localContrastStdDev}, glare=${(metrics.glareRatio * 100).toInt()}%")
                     }
 
-                    // Phase 1: light enhancement (CLAHE + unsharp) on gray
+                    // Phase 1: light enhancement - keep original color image
                     if (options.enableEnhancement) {
+                        // Apply enhancement only to grayscale for metrics, but keep original color
                         enhancedGray = applyEnhancement(gray, options)
-                        outMat = Mat()
-                        Imgproc.cvtColor(enhancedGray, outMat, Imgproc.COLOR_GRAY2RGBA)
-                        val outBitmap = createBitmap(roiCropped.width, roiCropped.height)
-                        Utils.matToBitmap(outMat, outBitmap)
-                        workingBitmap = outBitmap
+                        Log.d(TAG, "Enhancement applied to grayscale for quality metrics, maintaining original color image")
+                        // Keep the original color bitmap as working bitmap
+                        workingBitmap = roiCropped
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "OpenCV processing skipped: ${e.message}")
@@ -189,15 +188,20 @@ object FingerprintProcessor {
         var sharp: Mat? = null
         
         try {
+            // Step 1: Gentle CLAHE to avoid over-brightening
             val clahe = Imgproc.createCLAHE(options.claheClipLimit, Size(options.claheTileGrid.toDouble(), options.claheTileGrid.toDouble()))
             claheOut = Mat()
             clahe.apply(gray, claheOut)
             
-            // Unsharp mask
+            // Step 2: Standard unsharp mask without aggressive edge enhancement
             blurred = Mat()
             Imgproc.GaussianBlur(claheOut, blurred, Size(0.0, 0.0), options.unsharpSigma)
             sharp = Mat()
-            org.opencv.core.Core.addWeighted(claheOut, 1.0 + options.unsharpAmount, blurred, -options.unsharpAmount, 0.0, sharp)
+            
+            // Gentle unsharp mask to avoid whitening effect
+            Core.addWeighted(claheOut, 1.0 + options.unsharpAmount, blurred, -options.unsharpAmount, 0.0, sharp)
+            
+            Log.d(TAG, "Applied balanced sharpening without whitening - clipLimit: ${options.claheClipLimit}, unsharpAmount: ${options.unsharpAmount}")
             
             return sharp!!
         } finally {

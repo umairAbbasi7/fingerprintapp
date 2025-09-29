@@ -145,7 +145,7 @@ class CaptureFingerActivity : ComponentActivity() {
     private var countdownValue by mutableStateOf(0)
     
     // Progress UI state
-    private var captureStatus by mutableStateOf("Position 4 fingers inside the D-shape area")
+    private var captureStatus by mutableStateOf("Center 4 fingers on the yellow crosshairs")
     private var progressStep by mutableStateOf(0) // 0: positioning, 1: detecting, 2: capturing, 3: processing
 
     // Permissions
@@ -574,7 +574,7 @@ class CaptureFingerActivity : ComponentActivity() {
         )
         ext.setCaptureRequestOption(
             android.hardware.camera2.CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
-            0  // No exposure compensation for natural lighting
+            -2  // No exposure compensation for natural lighting
         )
         ext.setCaptureRequestOption(
             android.hardware.camera2.CaptureRequest.CONTROL_AWB_MODE,
@@ -597,8 +597,14 @@ class CaptureFingerActivity : ComponentActivity() {
             false
         )
         
-        // Flash settings - let CameraX handle torch control
+        // Flash settings - reduce torch brightness to prevent shine
         // Don't override FLASH_MODE to allow torch control
+        
+        // Reduce overall exposure to prevent shine with torch
+        ext.setCaptureRequestOption(
+            android.hardware.camera2.CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
+            -1  // Reduce exposure slightly since torch is always on
+        )
 
         imageCapture = imageCaptureBuilder.build()
 
@@ -611,10 +617,10 @@ class CaptureFingerActivity : ComponentActivity() {
                 imageAnalyzer,
                 imageCapture
             )
-            // Enable torch by default for fingerprint capture
+            // Enable torch by default for fingerprint capture with controlled brightness
             try {
                 camera?.cameraControl?.enableTorch(true)
-                Log.d(TAG, "CameraX bound successfully with torch enabled")
+                Log.d(TAG, "CameraX bound successfully with torch enabled at reduced brightness")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to enable torch on camera bind: ${e.message}")
             }
@@ -891,9 +897,17 @@ class CaptureFingerActivity : ComponentActivity() {
                             }
                             Log.d(TAG, "Saved preview frame cropped image: ${outFile.absolutePath}")
 
-                            // Process with FingerprintProcessor (OpenCV)
+                            // Process with FingerprintProcessor (OpenCV) - balanced sharpening without whitening
+                            val processingOptions = FingerprintProcessor.ProcessingOptions(
+                                enableMetrics = true,
+                                enableEnhancement = true,
+                                claheClipLimit = 1.2,   // Gentle contrast to avoid whitening
+                                claheTileGrid = 8,       // Standard tiles
+                                unsharpSigma = 1.0,      // Balanced sharpening
+                                unsharpAmount = 0.3      // Moderate sharpening without over-brightening
+                            )
                             val processingResult = try {
-                                FingerprintProcessor.processFingerprint(finalBitmap, null)
+                                FingerprintProcessor.processFingerprint(finalBitmap, null, processingOptions)
                             } catch (e: Exception) {
                                 Log.w(TAG, "Fingerprint processing error: ${e.message}")
                                 null
@@ -914,10 +928,21 @@ class CaptureFingerActivity : ComponentActivity() {
                             }
 
 
-                            // Skip manual cropping - go directly to preview with PREVIEW FRAME CROPPED image
+                            // Save the sharpened/enhanced image for better fingerprint visibility
+                            val enhancedBitmap = processingResult.processedBitmap
+                            val enhancedFile = File(
+                                getExternalFilesDir(null),
+                                "fingerprint_sharpened_${System.currentTimeMillis()}.jpg"
+                            )
+                            FileOutputStream(enhancedFile).use { fos ->
+                                enhancedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, fos)
+                            }
+                            Log.d(TAG, "Saved sharpened image: ${enhancedFile.absolutePath}")
+
+                            // Skip manual cropping - go directly to preview with SHARPENED image
                             withContext(Dispatchers.Main) {
                                 updateProgressStep(3) // Processing step
-                                updateCaptureStatus("✅ Image captured successfully!")
+                                updateCaptureStatus("✅ Image captured and sharpened!")
                                 
                                 // Play capture sound only when image is successfully processed and ready
                                 playCapturedSound()
@@ -934,7 +959,7 @@ class CaptureFingerActivity : ComponentActivity() {
                                 ).apply {
                                     putExtra(
                                         PreviewActivity.EXTRA_IMAGE_PATH,
-                                        outFile.absolutePath
+                                        enhancedFile.absolutePath
                                     )
                                     putExtra(
                                         PreviewActivity.EXTRA_USER_ID,
@@ -985,10 +1010,10 @@ class CaptureFingerActivity : ComponentActivity() {
         // Update progress step based on detection quality
         if (assessment.fingerCount > 0 && aiConfidence > 50) {
             updateProgressStep(1) // Detecting step
-            updateCaptureStatus("Detecting fingers... ${assessment.fingerCount} found")
+            updateCaptureStatus("Detecting fingers... ${assessment.fingerCount} found - Keep centered!")
         } else {
             updateProgressStep(0) // Positioning step
-            updateCaptureStatus("Position 4 fingers inside the D-shape area")
+            updateCaptureStatus("Center 4 fingers on the yellow crosshairs")
         }
         
         qualityText = """

@@ -97,10 +97,10 @@ fun CaptureComposeScreen(
             val widthF = previewSize.width.toFloat()
             val heightF = previewSize.height.toFloat()
 
-            val roiW = widthF * 0.95f
-            val roiH = heightF * 0.55f
+            val roiW = widthF * 0.85f  // Keep width for center sweet spot
+            val roiH = heightF * 0.58f  // Increased vertical height for better finger coverage
             val left = (widthF - roiW) / 2f
-            val top = (heightF - roiH) / 2f
+            val top = (heightF - roiH) / 2f + heightF * 0.08f  // Move D-shape lower on screen
             val right = left + roiW
             val bottom = top + roiH
             val radius = roiH / 2f
@@ -150,6 +150,25 @@ fun CaptureComposeScreen(
                         isAntiAlias = true
                     }
                     native.drawPath(roiPath, borderPaint)
+                    
+                    // Add center guidance lines to keep fingers in sweet spot
+                    val guidePaint = Paint().apply {
+                        color = android.graphics.Color.YELLOW
+                        style = Paint.Style.STROKE
+                        strokeWidth = 2f
+                        isAntiAlias = true
+                        alpha = 150  // Semi-transparent
+                    }
+                    
+                    // Draw center guidelines
+                    val centerX = (left + right) / 2f
+                    val centerY = (top + bottom) / 2f
+                    val guideSize = roiW * 0.15f
+                    
+                    // Horizontal center line
+                    native.drawLine(centerX - guideSize, centerY, centerX + guideSize, centerY, guidePaint)
+                    // Vertical center line  
+                    native.drawLine(centerX, centerY - guideSize, centerX, centerY + guideSize, guidePaint)
 
                     if (showCaptureIndicator) {
                         val indicatorPaint = Paint().apply {
